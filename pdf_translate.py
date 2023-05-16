@@ -1,3 +1,4 @@
+import textwrap
 import openai
 import pdfplumber
 from reportlab.lib.pagesizes import letter, landscape
@@ -21,13 +22,17 @@ def get_api_keys():
     return api_keys
 
 def get_lines_from_pdf(filename):
-    with pdfplumber.open(filename) as pdf:
-        lines = []
-        for page in pdf.pages:
-            text = page.extract_text()
-            for line in text.split('\n'):
-                lines.append(line)
-        return lines
+    try:
+        with pdfplumber.open(filename) as pdf:
+            lines = []
+            for page in pdf.pages:
+                text = page.extract_text()
+                for line in text.split('\n'):
+                    lines.append(line)
+            return lines
+    except FileNotFoundError:
+        print(f"File not found: {filename}")
+        return None
 
 def translate_text(text_to_translate, target_language, api_keys):
     translations = []
@@ -35,24 +40,26 @@ def translate_text(text_to_translate, target_language, api_keys):
     openai.api_key = api_keys[current_key_index]
 
     for index, line in enumerate(text_to_translate):
-        try:
-            response = openai.Completion.create(
-                engine="text-davinci-002",
-                prompt=f"Translate the following English text to {target_language}:\n\n{line}\n",
-                max_tokens=1024,
-                n=1,
-                stop=None,
-                temperature=0.5,
-            )
-            translation = response.choices[0].text.strip()
-            translations.append(translation)
-            print(f"Translated line {index + 1}/{len(text_to_translate)}")
-        except openai.error.RateLimitError:
-            if current_key_index + 1 < len(api_keys):
-                current_key_index += 1
-                openai.api_key = api_keys[current_key_index]
-            else:
-                raise Exception("All API keys have reached their rate limits.")
+        segments = textwrap.wrap(line, width=200)
+        for segment in segments:
+            try:
+                response = openai.Completion.create(
+                    engine="text-davinci-003",
+                    prompt=f"Translate the following English text to {target_language}:\n\n{line}\n",
+                    max_tokens=200,
+                    n=1,
+                    stop=None,
+                    temperature=0.1,
+                )
+                translation = response.choices[0].text.strip()
+                translations.append(translation)
+                print(f"Translated line {index + 1}/{len(text_to_translate)}")
+            except openai.error.RateLimitError:
+                if current_key_index + 1 < len(api_keys):
+                    current_key_index += 1
+                    openai.api_key = api_keys[current_key_index]
+                else:
+                    raise Exception("All API keys have reached their rate limits.")
 
     return translations
 
@@ -61,8 +68,8 @@ def save_translation_to_pdf(original_text, translated_text, filename):
     elements = []
 
     styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="Original", fontName="SimFang", fontSize=14))
-    styles.add(ParagraphStyle(name="Translated", fontName="SimFang", fontSize=14))
+    styles.add(ParagraphStyle(name="Original", fontName="SimFang", fontSize=10))
+    styles.add(ParagraphStyle(name="Translated", fontName="SimFang", fontSize=10))
 
     for original, translated in zip(original_text, translated_text):
         elements.append(Paragraph(original, styles["Original"]))
