@@ -1,0 +1,4 @@
+openai
+pdfplumber
+tqdm
+reportlab
