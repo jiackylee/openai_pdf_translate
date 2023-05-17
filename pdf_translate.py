@@ -13,10 +13,10 @@ pdfmetrics.registerFont(TTFont("SimFang", "simfang.ttf"))
 
 def get_api_keys():
     api_keys = []
-    print("Enter your OpenAI API keys, one per line. Type 'EOF' to finish:")
+    print("Enter your OpenAI API keys, one per line. Type 'END' to finish:")
     while True:
         api_key = input()
-        if api_key.strip().upper() == "EOF":
+        if api_key.strip().upper() == "END":
             break
         api_keys.append(api_key.strip())  # Strip spaces from the input
     return api_keys
@@ -97,8 +97,8 @@ else:
     target_language = input("Enter the target language (e.g., Chinese, Spanish, French): ")  # 获取目标语言
 
     translated_text = translate_text(text_to_translate, target_language, api_keys)  #翻译文本
-
-    output_filename = "translation_result.pdf"
+    input_filename_base = input_filename.rsplit('.', 1)[0] if '.' in input_filename else input_filename #获取文件的原名称
+    output_filename = f"{input_filename_base}_translated.pdf"  #用原文件名字生成输出文件名
 
 # 将原始文本和翻译结果保存到一个PDF文件    
 save_translation_to_pdf(text_to_translate, translated_text, output_filename)
