@@ -2,3 +2,4 @@ openai
 pdfplumber
 tqdm
 reportlab
+nltk
