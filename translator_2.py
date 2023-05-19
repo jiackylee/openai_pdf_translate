@@ -14,7 +14,7 @@ pdfmetrics.registerFont(TTFont("SimFang", "simfang.ttf"))
 
 def get_api_keys():
     api_keys = []
-    print("Enter your OpenAI API keys, one per line. Type 'EOF' to finish:")
+    print("Enter your OpenAI API keys, one per line. Type 'END' to finish:")
     while True:
         api_key = input()
         if api_key.strip().upper() == "EOF":
