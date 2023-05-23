@@ -17,7 +17,7 @@ def get_api_keys():
     print("Enter your OpenAI API keys, one per line. Type 'END' to finish:")
     while True:
         api_key = input()
-        if api_key.strip().upper() == "EOF":
+        if api_key.strip().upper() == "END":
             break
         api_keys.append(api_key)
     return api_keys
