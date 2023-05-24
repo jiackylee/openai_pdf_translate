@@ -2,15 +2,24 @@ import os
 import textwrap
 import openai
 import pdfplumber
-from reportlab.lib.pagesizes import letter, landscape
-from reportlab.lib import colors
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
+import argparse
+import json
+import nltk
+from nltk.tokenize import sent_tokenize
+from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
-from nltk.tokenize import sent_tokenize
 
+# Register a Chinese font
 pdfmetrics.registerFont(TTFont("SimFang", "simfang.ttf"))
+
+# Create the parser and define the --resume argument
+parser = argparse.ArgumentParser()
+parser.add_argument('--resume', action='store_true', help='resume from last time')
+args = parser.parse_args()
+resume_from_last_time = args.resume
 
 def get_api_keys():
     api_keys = []
@@ -44,7 +53,14 @@ def translate_text(text_to_translate, target_language, api_keys):
     current_key_index = 0
     openai.api_key = api_keys[current_key_index]
 
-    for index, line in enumerate(text_to_translate):
+    # Load the previous translations if resume_from_last_time is True
+    if resume_from_last_time and os.path.exists("temp_translations.json"):
+        with open("temp_translations.json", "r", encoding='utf-8') as f:
+            translations = json.load(f)
+
+    start_index = len(translations)  # Skip the sentences that have been translated
+    for index in range(start_index, len(text_to_translate)):
+        line = text_to_translate[index]
         try:
             response = openai.Completion.create(
                 engine="text-davinci-003",
@@ -56,6 +72,11 @@ def translate_text(text_to_translate, target_language, api_keys):
             )
             translation = response.choices[0].text.strip()
             translations.append(translation)
+
+            # Save the translation to the temporary file
+            with open("temp_translations.json", "w", encoding='utf-8') as f:
+                json.dump(translations, f)
+
             print(f"Translated line {index + 1}/{len(text_to_translate)}")
         except openai.error.RateLimitError:
             if current_key_index + 1 < len(api_keys):
@@ -91,4 +112,9 @@ translated_text = translate_text(text_to_translate, target_language, api_keys)
 base_filename = os.path.basename(input_filename)
 output_filename = os.path.splitext(base_filename)[0] + "_translated.pdf"
 save_translation_to_pdf(text_to_translate, translated_text, output_filename)
+
+# Delete the temporary file after the translation is done
+if os.path.exists("temp_translations.json"):
+    os.remove("temp_translations.json")
+
 print(f"Translation and original text have been saved to {output_filename}")
