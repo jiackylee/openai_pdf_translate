@@ -6,6 +6,8 @@
 - 5.输入 需要翻译的文件路径 
 - 6.输入 需要翻译的目标语言 如 Chinese
 - 7.等待执行结果
+
+中断后使用 --resume 恢复
 -------
 - Download the file, 
 - pip install -r requirements.txt
