@@ -8,6 +8,7 @@
 - 7.等待执行结果
 
 中断后使用 --resume 恢复
+
 -------
 - Download the file, 
 - pip install -r requirements.txt
