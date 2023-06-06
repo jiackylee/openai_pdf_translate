@@ -14,7 +14,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-OPENAI_API_KEYS = ['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', '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']
+OPENAI_API_KEYS = ['your_openai_key1', 'your_openai_key2', 'your_openai_key3', 'your_openai_key4']
 
 pdfmetrics.registerFont(TTFont('Vera', 'Vera.ttf'))  # 请确保'.ttf'字体文件路径正确
 
