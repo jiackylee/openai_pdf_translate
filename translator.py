@@ -6,8 +6,7 @@ from io import BytesIO
 from itertools import cycle
 from functools import partial
 import PyPDF2
-from pdfminer.high_level import extract_pages
-from pdfminer.layout import LTImage, LTText
+from pdfminer.high_level import extract_text
 from reportlab.pdfgen.canvas import Canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfbase import pdfmetrics
@@ -15,7 +14,7 @@ from reportlab.pdfbase.ttfonts import TTFont
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-OPENAI_API_KEYS = ['your-api-key1', 'your-api-key2']
+OPENAI_API_KEYS = ['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', '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']
 
 pdfmetrics.registerFont(TTFont('Vera', 'Vera.ttf'))  # 请确保'.ttf'字体文件路径正确
 
@@ -51,39 +50,37 @@ class PDFTranslator:
 
     async def do_translation(self, client, translations, texts, start, step, api_key):
         for i in range(start, len(texts), step):
-            if isinstance(texts[i], LTImage):
-                translations[i] = texts[i]
-            else:
-                translated_text = await self.aio_translate_text_openai(client, texts[i].get_text(), api_key)
-                translations[i] = translated_text
+            translated_text = await self.aio_translate_text_openai(client, texts[i], api_key)
+            translations[i] = translated_text
 
     async def translate_and_write_to_pdf(self, output_pdf_path):
-        pages = extract_pages(self.pdf_path)
+        pdf_reader = PyPDF2.PdfReader(self.pdf_path)
 
         with BytesIO() as buffer:
             c = Canvas(buffer, pagesize=letter)
             c.setFont("Vera", 12)  # 使用前面注册过的Vera字体
-            for pg_num, page in enumerate(pages):
-                texts = []
 
-                for element in page:
-                    if isinstance(element, LTText):
-                        texts.append(element)
+            pdf_reader = PyPDF2.PdfReader(self.pdf_path)
+            for pg_num in range(len(pdf_reader.pages)):
+                page_text = extract_text(self.pdf_path, page_numbers=[pg_num]).strip()
+                if not page_text:
+                    continue
 
-                translations = [None] * len(texts)
+                translations = [None] * len(page_text.splitlines())
                 translation_tasks = []
 
-                for i, (client, api_key) in enumerate(zip(self.client_pool, OPENAI_API_KEYS)):
+                client_pool_list = list(self.client_pool)
+                api_keys_list = list(OPENAI_API_KEYS)
+                for i, (client, api_key) in enumerate(zip(client_pool_list, api_keys_list)):
                     task = asyncio.create_task(
-                        self.do_translation(client, translations, texts, i, len(self.client_pool), api_key))
+                        self.do_translation(client, translations, page_text.splitlines(), i, len(client_pool_list), api_key))
                     translation_tasks.append(task)
 
                 await asyncio.gather(*translation_tasks)
 
-                for text, translated_text in zip(texts, translations):
-                    original_x, original_y = text.bbox[0], text.bbox[1]
-                    c.drawString(original_x, original_y, text.get_text())
-                    c.drawString(original_x, original_y - 14, translated_text)
+                for i, (text, translated_text) in enumerate(zip(page_text.splitlines(), translations)):
+                    c.drawString(30, 750 - i * 14, text)
+                    c.drawString(30, 750 - i * 14 - 14, translated_text)
 
                 c.showPage()
 
@@ -96,6 +93,7 @@ class PDFTranslator:
         # 关闭client连接
         for client in self.client_pool:
             await client.aclose()
+
 
 class TranslatorGUI(tk.Tk):
     def __init__(self):
@@ -161,6 +159,7 @@ class TranslatorGUI(tk.Tk):
 def main():
     app = TranslatorGUI()
     app.mainloop()
+
 
 if __name__ == '__main__':
     main()
