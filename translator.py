@@ -1,120 +1,115 @@
 import os
-import textwrap
-import openai
-import pdfplumber
-import argparse
-import json
-import nltk
-from nltk.tokenize import sent_tokenize
+import sys
+import asyncio
+import httpx
+from io import BytesIO
+from itertools import cycle
+from functools import partial
+import PyPDF2
+from pdfminer.high_level import extract_pages
+from pdfminer.layout import LTImage, LTText
+from reportlab.pdfgen.canvas import Canvas
 from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
 
-# Register a Chinese font
-pdfmetrics.registerFont(TTFont("SimFang", "simfang.ttf"))
+# 可以根据实际需求增加其他OpenAI API密钥，并根据需要进行替换
+OPENAI_API_KEYS = ['your-api-key1', 'your-api-key2']
 
-# Create the parser and define the --resume argument
-parser = argparse.ArgumentParser()
-parser.add_argument('--resume', action='store_true', help='resume from last time')
-args = parser.parse_args()
-resume_from_last_time = args.resume
+pdfmetrics.registerFont(TTFont('Vera', 'Vera.ttf'))  # 注册您期望的字体应用于生成的PDF文件中，请确保'.ttf'字体文件路径正确
 
-def get_api_keys():
-    api_keys = []
-    print("Enter your OpenAI API keys, one per line. Type 'END' to finish:")
-    while True:
-        api_key = input()
-        if api_key.strip().upper() == "END":
-            break
-        api_keys.append(api_key)
-    return api_keys
+class PDFTranslator:
 
-def get_paragraphs_from_pdf(filepath):
-    try:
-        paragraphs = []
-        with pdfplumber.open(filepath) as pdf:
-            for page in pdf.pages:
-                text = page.extract_text()
-                if text:
-                    for paragraph in text.split('\n\n'):
-                        sentences = sent_tokenize(paragraph)
-                        for sentence in sentences:
-                            wrapped_lines = textwrap.wrap(sentence, width=50)
-                            paragraphs.extend(wrapped_lines)
-        return paragraphs
-    except FileNotFoundError:
-        print(f"File not found: {filepath}")
-        return None
+    def __init__(self, pdf_path, target_language='zh-CN', max_token_length=4000):
+        self.pdf_path = pdf_path
+        self.target_language = target_language
+        self.max_token_length = max_token_length
+        self.client_pool = cycle(httpx.AsyncClient() for _ in range(len(OPENAI_API_KEYS)))
 
-def translate_text(text_to_translate, target_language, api_keys):
-    translations = []
-    current_key_index = 0
-    openai.api_key = api_keys[current_key_index]
-
-    # Load the previous translations if resume_from_last_time is True
-    if resume_from_last_time and os.path.exists("temp_translations.json"):
-        with open("temp_translations.json", "r", encoding='utf-8') as f:
-            translations = json.load(f)
-
-    start_index = len(translations)  # Skip the sentences that have been translated
-    for index in range(start_index, len(text_to_translate)):
-        line = text_to_translate[index]
+    async def aio_translate_text_openai(self, client, text, api_key):
+        headers = {
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {api_key}'
+        }
+        url = f"https://api.openai.com/v1/engines/text-davinci-003/completions"
+        data = {
+            "prompt": f"Translate the following English text to {self.target_language}:\n\n{text}",
+            "max_tokens": self.max_token_length,
+            "n": 1,
+            "stop": None,
+            "temperature": 0.8
+        }
         try:
-            response = openai.Completion.create(
-                engine="text-davinci-003",
-                prompt=f"Translate the following English text to {target_language}:\n\n{line}\n",
-                max_tokens=200,
-                n=1,
-                stop=None,
-                temperature=0.1,
-            )
-            translation = response.choices[0].text.strip()
-            translations.append(translation)
+            response = await client.post(url, json=data, headers=headers)
+            response.raise_for_status()
+            translated_text = response.json()['choices'][0]['text'].strip()
+            return translated_text
+        except Exception as e:
+            print(f"Error while translating text: {e}")
+            return None
 
-            # Save the translation to the temporary file
-            with open("temp_translations.json", "w", encoding='utf-8') as f:
-                json.dump(translations, f)
-
-            print(f"Translated line {index + 1}/{len(text_to_translate)}")
-        except openai.error.RateLimitError:
-            if current_key_index + 1 < len(api_keys):
-                current_key_index += 1
-                openai.api_key = api_keys[current_key_index]
+    async def do_translation(self, client, translations, texts, start, step, api_key):
+        for i in range(start, len(texts), step):
+            if isinstance(texts[i], LTImage):
+                translations[i] = texts[i]
             else:
-                raise Exception("All API keys have reached their rate limits.")
-    return translations
+                translated_text = await self.aio_translate_text_openai(client, texts[i].get_text(), api_key)
+                translations[i] = translated_text
 
-def save_translation_to_pdf(original_text, translated_text, filename):
-    doc = SimpleDocTemplate(filename, pagesize=letter)
-    elements = []
+    async def translate_and_write_to_pdf(self, output_pdf_path):
+        pages = extract_pages(self.pdf_path)
 
-    styles = getSampleStyleSheet()
-    styles.add(ParagraphStyle(name="Original", fontName="SimFang", fontSize=10))
-    styles.add(ParagraphStyle(name="Translated", fontName="SimFang", fontSize=10))
+        with BytesIO() as buffer:
+            c = Canvas(buffer, pagesize=letter)
+            c.setFont("Vera", 12)  # 使用前面注册过的Vera字体
+            for pg_num, page in enumerate(pages):
+                texts = []
 
-    for original, translated in zip(original_text, translated_text):
-        elements.append(Paragraph(original, styles["Original"]))
-        elements.append(Spacer(1, 6))
-        elements.append(Paragraph(translated, styles["Translated"]))
-        elements.append(Spacer(1, 12))
+                for element in page:
+                    if isinstance(element, LTText):
+                        texts.append(element)
 
-    doc.build(elements)
+                translations = [None] * len(texts)
+                translation_tasks = []
 
-api_keys = get_api_keys()
-input_filename = input("Enter the path of the PDF file you want to translate: ")
-target_language = input("Enter the target language (e.g., Chinese, Spanish, French): ")
+                for i, (client, api_key) in enumerate(zip(self.client_pool, OPENAI_API_KEYS)):
+                    task = asyncio.create_task(
+                        self.do_translation(client, translations, texts, i, len(self.client_pool), api_key))
+                    translation_tasks.append(task)
 
-text_to_translate = get_paragraphs_from_pdf(input_filename)
-translated_text = translate_text(text_to_translate, target_language, api_keys)
+                await asyncio.gather(*translation_tasks)
 
-base_filename = os.path.basename(input_filename)
-output_filename = os.path.splitext(base_filename)[0] + "_translated.pdf"
-save_translation_to_pdf(text_to_translate, translated_text, output_filename)
+                for text, translated_text in zip(texts, translations):
+                    original_x, original_y = text.bbox[0], text.bbox[1]
+                    c.drawString(original_x, original_y, text.get_text())
+                    c.drawString(original_x, original_y - 14, translated_text)
 
-# Delete the temporary file after the translation is done
-if os.path.exists("temp_translations.json"):
-    os.remove("temp_translations.json")
+                c.showPage()
 
-print(f"Translation and original text have been saved to {output_filename}")
+            c.save()
+
+            with open(output_pdf_path, 'wb') as f:
+                f.write(buffer.getvalue())
+
+    async def close_clients(self):
+        # 关闭client连接
+        for client in self.client_pool:
+            await client.aclose()
+
+
+async def main(input_path, output_path, target_language):
+    pdf_translator = PDFTranslator(input_path, target_language=target_language)
+    await pdf_translator.translate_and_write_to_pdf(output_path)
+    await pdf_translator.close_clients()
+
+
+if __name__ == '__main__':
+    if len(sys.argv) < 3:
+        print("Usage: python pdf_translator.py input_file output_file [target_language]")
+        exit(1)
+
+    input_file = sys.argv[1]
+    output_file = sys.argv[2]
+    target_language = sys.argv[3] if len(sys.argv) >= 4 else 'zh-CN'
+
+    asyncio.run(main(input_file, output_file, target_language))
