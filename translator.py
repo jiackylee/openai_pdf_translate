@@ -12,11 +12,12 @@ from reportlab.pdfgen.canvas import Canvas
 from reportlab.lib.pagesizes import letter
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
+import tkinter as tk
+from tkinter import filedialog, messagebox
 
-# 可以根据实际需求增加其他OpenAI API密钥，并根据需要进行替换
 OPENAI_API_KEYS = ['your-api-key1', 'your-api-key2']
 
-pdfmetrics.registerFont(TTFont('Vera', 'Vera.ttf'))  # 注册您期望的字体应用于生成的PDF文件中，请确保'.ttf'字体文件路径正确
+pdfmetrics.registerFont(TTFont('Vera', 'Vera.ttf'))  # 请确保'.ttf'字体文件路径正确
 
 class PDFTranslator:
 
@@ -96,20 +97,70 @@ class PDFTranslator:
         for client in self.client_pool:
             await client.aclose()
 
+class TranslatorGUI(tk.Tk):
+    def __init__(self):
+        super().__init__()
 
-async def main(input_path, output_path, target_language):
-    pdf_translator = PDFTranslator(input_path, target_language=target_language)
-    await pdf_translator.translate_and_write_to_pdf(output_path)
-    await pdf_translator.close_clients()
+        self.title("PDF Translator")
+        self.geometry("300x200")
 
+        input_label = tk.Label(self, text="Input PDF file:")
+        input_label.grid(row=0, column=0, padx=10, pady=10, sticky=tk.W)
+
+        self.input_var = tk.StringVar()
+        input_entry = tk.Entry(self, textvariable=self.input_var, state='readonly')
+        input_entry.grid(row=1, column=0, columnspan=2, sticky=tk.EW)
+
+        input_button = tk.Button(self, text="Browse", command=self.select_input_file)
+        input_button.grid(row=1, column=2, padx=10)
+
+        output_label = tk.Label(self, text="Output PDF file:")
+        output_label.grid(row=2, column=0, padx=10, pady=10, sticky=tk.W)
+
+        self.output_var = tk.StringVar()
+        output_entry = tk.Entry(self, textvariable=self.output_var, state='readonly')
+        output_entry.grid(row=3, column=0, columnspan=2, sticky=tk.EW)
+
+        output_button = tk.Button(self, text="Browse", command=self.select_output_file)
+        output_button.grid(row=3, column=2, padx=10)
+
+        self.translate_button = tk.Button(self, text="Translate", command=self.translate, state=tk.DISABLED)
+        self.translate_button.grid(row=4, column=0, columnspan=3, pady=(15, 0))
+
+        self.columnconfigure(1, weight=1)
+
+    def select_input_file(self):
+        input_file = filedialog.askopenfilename(filetypes=[("PDF files", "*.pdf")])
+        if input_file:
+            self.input_var.set(input_file)
+            self.check_ready_to_translate()
+
+    def select_output_file(self):
+        output_file = filedialog.asksaveasfilename(defaultextension='.pdf', filetypes=[("PDF files", "*.pdf")])
+        if output_file:
+            self.output_var.set(output_file)
+            self.check_ready_to_translate()
+
+    def check_ready_to_translate(self):
+        if self.input_var.get() and self.output_var.get():
+            self.translate_button.config(state=tk.NORMAL)
+
+    def translate(self):
+        input_path = self.input_var.get()
+        output_path = self.output_var.get()
+
+        pdf_translator = PDFTranslator(input_path, target_language='zh-CN')
+
+        messagebox.showinfo("PDF Translator", "Translating PDF file, please wait...")
+
+        asyncio.run(pdf_translator.translate_and_write_to_pdf(output_path))
+
+        messagebox.showinfo("PDF Translator", f"Translation completed! File saved as: {output_path}")
+
+
+def main():
+    app = TranslatorGUI()
+    app.mainloop()
 
 if __name__ == '__main__':
-    if len(sys.argv) < 3:
-        print("Usage: python pdf_translator.py input_file output_file [target_language]")
-        exit(1)
-
-    input_file = sys.argv[1]
-    output_file = sys.argv[2]
-    target_language = sys.argv[3] if len(sys.argv) >= 4 else 'zh-CN'
-
-    asyncio.run(main(input_file, output_file, target_language))
+    main()
